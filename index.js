@@ -26,10 +26,22 @@ async function run() {
     // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
     // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-    console.log("✅ Pinged your deployment. You successfully connected to MongoDB!");
 
-    
+    const db = client.db(process.env.DB_NAME);
+
+    const userCollection = db.collection("users");
+    const lawyerCollection = db.collection("lawyers"); 
+    const hiringCollection = db.collection("hirings"); 
+    const transactionCollection = db.collection("transactions"); 
+    const commentCollection = db.collection("comments");
+
+    await client.db("admin").command({ ping: 1 });
+    console.log(
+      "✅ Pinged your deployment. You successfully connected to MongoDB!",
+    );
+
+
+    // TODO: CRUD Oparations
 
 
   } catch (error) {
