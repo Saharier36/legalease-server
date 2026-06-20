@@ -121,6 +121,23 @@ async function run() {
       }
     });
 
+app.delete("/api/lawyer/services/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const service = await lawyerCollection.findOne({ _id: new ObjectId(id) });
+    if (!service) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Service not found" });
+    }
+
+    const result = await lawyerCollection.deleteOne({ _id: new ObjectId(id) });
+    res.send(result);
+  } catch (error) {
+    console.error("Error deleting service:", error);
+    res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+});
 
   } catch (error) {
     console.error("❌ MongoDB Connection Error:", error);
