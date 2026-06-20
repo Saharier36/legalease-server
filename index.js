@@ -9,7 +9,6 @@ const port = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-
 const uri = process.env.MONGODB_URI;
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
@@ -42,48 +41,74 @@ async function run() {
 
     // TODO: CRUD Oparations
 
+    app.get("/api/lawyer/services", async (req, res) => {
+      try {
+        const query = {};
+
+        if (req.query.lawyerId) {
+          query.lawyerId = req.query.lawyerId;
+        }
+
+        if (req.query.status) {
+          query.status = req.query.status;
+        }
+
+        const result = await lawyerCollection
+          .find(query)
+          .sort({ _id: -1 })
+          .toArray();
+
+        res.send(result);
+      } catch (error) {
+        console.error("Error fetching lawyer services:", error);
+        res.status(500).send({
+          success: false,
+          message: "Internal server error",
+        });
+      }
+    });
+
     app.post("/api/lawyer/services", async (req, res) => {
-  try {
-    const newService = req.body;
-    const { lawyerEmail, specialization } = newService;
+      try {
+        const newService = req.body;
+        const { lawyerEmail, specialization } = newService;
 
-    if (!lawyerEmail || !specialization) {
-      return res.status(400).send({ 
-        success: false, 
-        message: "Missing required fields: lawyerEmail or specialization." 
-      });
-    }
+        if (!lawyerEmail || !specialization) {
+          return res.status(400).send({
+            success: false,
+            message: "Missing required fields: lawyerEmail or specialization.",
+          });
+        }
 
-    const duplicateCheckQuery = { 
-      lawyerEmail: lawyerEmail, 
-      specialization: specialization 
-    };
-    
-    const existingService = await lawyerCollection.findOne(duplicateCheckQuery);
+        const duplicateCheckQuery = {
+          lawyerEmail: lawyerEmail,
+          specialization: specialization,
+        };
 
-    if (existingService) {
-      return res.status(409).send({ 
-        success: false, 
-        message: `You have already added a service under the "${specialization}" category! Please choose another domain.` 
-      });
-    }
+        const existingService =
+          await lawyerCollection.findOne(duplicateCheckQuery);
 
-    const result = await lawyerCollection.insertOne(newService);
-    res.status(201).send(result);
+        if (existingService) {
+          return res.status(409).send({
+            success: false,
+            message: `You have already added a service under the "${specialization}" category! Please choose another domain.`,
+          });
+        }
 
-  } catch (error) {
-    console.error("Error creating lawyer service:", error);
-    res.status(500).send({ success: false, message: "Internal server error." });
-  }
-});
-
-
+        const result = await lawyerCollection.insertOne(newService);
+        res.status(201).send(result);
+      } catch (error) {
+        console.error("Error creating lawyer service:", error);
+        res
+          .status(500)
+          .send({ success: false, message: "Internal server error." });
+      }
+    });
   } catch (error) {
     console.error("❌ MongoDB Connection Error:", error);
   }
 }
 run().catch(console.dir);
-
 
 app.get("/", (req, res) => {
   res.send("🚀 LegalEase Server is running smoothly!");
