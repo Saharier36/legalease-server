@@ -30,9 +30,9 @@ async function run() {
     const db = client.db(process.env.DB_NAME);
 
     const userCollection = db.collection("users");
-    const lawyerCollection = db.collection("lawyers"); 
-    const hiringCollection = db.collection("hirings"); 
-    const transactionCollection = db.collection("transactions"); 
+    const lawyerCollection = db.collection("lawyers");
+    const hiringCollection = db.collection("hirings");
+    const transactionCollection = db.collection("transactions");
     const commentCollection = db.collection("comments");
 
     await client.db("admin").command({ ping: 1 });
@@ -40,8 +40,42 @@ async function run() {
       "✅ Pinged your deployment. You successfully connected to MongoDB!",
     );
 
-
     // TODO: CRUD Oparations
+
+    app.post("/api/lawyer/services", async (req, res) => {
+  try {
+    const newService = req.body;
+    const { lawyerEmail, specialization } = newService;
+
+    if (!lawyerEmail || !specialization) {
+      return res.status(400).send({ 
+        success: false, 
+        message: "Missing required fields: lawyerEmail or specialization." 
+      });
+    }
+
+    const duplicateCheckQuery = { 
+      lawyerEmail: lawyerEmail, 
+      specialization: specialization 
+    };
+    
+    const existingService = await lawyerCollection.findOne(duplicateCheckQuery);
+
+    if (existingService) {
+      return res.status(409).send({ 
+        success: false, 
+        message: `You have already added a service under the "${specialization}" category! Please choose another domain.` 
+      });
+    }
+
+    const result = await lawyerCollection.insertOne(newService);
+    res.status(201).send(result);
+
+  } catch (error) {
+    console.error("Error creating lawyer service:", error);
+    res.status(500).send({ success: false, message: "Internal server error." });
+  }
+});
 
 
   } catch (error) {
