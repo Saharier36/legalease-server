@@ -1,6 +1,6 @@
 const express = require("express");
 const cors = require("cors");
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 require("dotenv").config();
 
 const app = express();
@@ -104,6 +104,24 @@ async function run() {
           .send({ success: false, message: "Internal server error." });
       }
     });
+
+    app.patch("/api/lawyer/services/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const updatedData = req.body;
+
+        const result = await lawyerCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updatedData }
+        );
+        res.send(result);
+      } catch (error) {
+        console.error("Error updating lawyer service:", error);
+        res.status(500).send({ success: false, message: "Internal server error." });
+      }
+    });
+
+
   } catch (error) {
     console.error("❌ MongoDB Connection Error:", error);
   }
