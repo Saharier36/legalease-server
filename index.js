@@ -53,10 +53,36 @@ async function run() {
           query.status = req.query.status;
         }
 
-        const result = await lawyerCollection
-          .find(query)
-          .sort({ _id: -1 })
-          .toArray();
+        if (req.query.search) {
+          query.name = { $regex: req.query.search, $options: "i" };
+        }
+
+        if (req.query.specialization) {
+          query.specialization = req.query.specialization;
+        }
+
+        let pipeline = [{ $match: query }];
+
+        pipeline.push({
+          $addFields: {
+            numericFee: { $toDouble: "$fee" },
+          },
+        });
+
+        let sortStage = { _id: -1 };
+
+        if (req.query.sort) {
+          if (req.query.sort === "lowToHigh") {
+            sortStage = { numericFee: 1 };
+          } else if (req.query.sort === "highToLow") {
+            sortStage = { numericFee: -1 };
+          }
+        }
+
+        pipeline.push({ $sort: sortStage });
+
+        // রেজাল্ট জেনারেট করা
+        const result = await lawyerCollection.aggregate(pipeline).toArray();
 
         res.send(result);
       } catch (error) {
@@ -152,3 +178,5 @@ app.get("/", (req, res) => {
 app.listen(port, () => {
   console.log(`🔥 Server is listening on port ${port}`);
 });
+
+module.exports = app;
