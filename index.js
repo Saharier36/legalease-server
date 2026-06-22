@@ -23,7 +23,7 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
+    // await client.connect();
     // Send a ping to confirm a successful connection
 
     const db = client.db(process.env.DB_NAME);
@@ -81,12 +81,33 @@ async function run() {
 
         pipeline.push({ $sort: sortStage });
 
-        // রেজাল্ট জেনারেট করা
         const result = await lawyerCollection.aggregate(pipeline).toArray();
 
         res.send(result);
       } catch (error) {
         console.error("Error fetching lawyer services:", error);
+        res.status(500).send({
+          success: false,
+          message: "Internal server error",
+        });
+      }
+    });
+
+    app.get("/api/lawyer/services/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const service = await lawyerCollection.findOne({
+          _id: new ObjectId(id),
+        });
+        if (!service) {
+          return res.status(404).send({
+            success: false,
+            message: "Service not found",
+          });
+        }
+        res.send(service);
+      } catch (error) {
+        console.error("Error fetching lawyer service:", error);
         res.status(500).send({
           success: false,
           message: "Internal server error",
@@ -138,33 +159,173 @@ async function run() {
 
         const result = await lawyerCollection.updateOne(
           { _id: new ObjectId(id) },
-          { $set: updatedData }
+          { $set: updatedData },
         );
         res.send(result);
       } catch (error) {
         console.error("Error updating lawyer service:", error);
-        res.status(500).send({ success: false, message: "Internal server error." });
+        res
+          .status(500)
+          .send({ success: false, message: "Internal server error." });
       }
     });
 
-app.delete("/api/lawyer/services/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const service = await lawyerCollection.findOne({ _id: new ObjectId(id) });
-    if (!service) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Service not found" });
-    }
+    app.delete("/api/lawyer/services/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const service = await lawyerCollection.findOne({
+          _id: new ObjectId(id),
+        });
+        if (!service) {
+          return res
+            .status(404)
+            .json({ success: false, message: "Service not found" });
+        }
 
-    const result = await lawyerCollection.deleteOne({ _id: new ObjectId(id) });
-    res.send(result);
-  } catch (error) {
-    console.error("Error deleting service:", error);
-    res.status(500).json({ success: false, message: "Internal Server Error" });
-  }
-});
+        const result = await lawyerCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
+        res.send(result);
+      } catch (error) {
+        console.error("Error deleting service:", error);
+        res
+          .status(500)
+          .json({ success: false, message: "Internal Server Error" });
+      }
+    });
 
+    app.post("/api/hirings", async (req, res) => {
+      try {
+        const {
+          lawyerId,
+          userId,
+          userEmail,
+          userName,
+          stripeSessionId,
+          amount,
+        } = req.body;
+
+        if (!lawyerId || !userId || !stripeSessionId) {
+          return res.status(400).json({
+            success: false,
+            message: "Missing required fields.",
+          });
+        }
+
+        const existing = await hiringCollection.findOne({
+          lawyerId,
+          userId,
+        });
+
+        if (existing) {
+          return res.status(409).json({
+            success: false,
+            message: "You have already hired this lawyer.",
+          });
+        }
+
+        const hiring = {
+          lawyerId,
+          userId,
+          userEmail,
+          userName,
+          stripeSessionId,
+          amount,
+          status: "pending",
+          createdAt: new Date(),
+        };
+
+        const result = await hiringCollection.insertOne(hiring);
+        res.status(201).json({ success: true, data: result });
+      } catch (error) {
+        console.error("Error saving hiring:", error);
+        res
+          .status(500)
+          .json({ success: false, message: "Internal server error." });
+      }
+    });
+
+   app.get("/api/hirings/check", async (req, res) => {
+     try {
+       const { lawyerId, userId } = req.query;
+       if (!lawyerId || !userId) {
+         return res
+           .status(400)
+           .json({ success: false, message: "Missing params." });
+       }
+
+       const hiring = await hiringCollection.findOne({ lawyerId, userId });
+
+       res.json({ hasPaid: !!hiring });
+     } catch (error) {
+       console.error("Error checking hiring:", error);
+       res
+         .status(500)
+         .json({ success: false, message: "Internal server error." });
+     }
+   });
+
+    app.post("/api/comments", async (req, res) => {
+      try {
+        const { lawyerId, userId, userEmail, userName, text } = req.body;
+
+        if (!lawyerId || !userId || !text) {
+          return res.status(400).json({
+            success: false,
+            message: "Missing required fields.",
+          });
+        }
+
+        if (text.length > 200) {
+          return res.status(400).json({
+            success: false,
+            message: "Comment cannot exceed 200 characters.",
+          });
+        }
+
+        const comment = {
+          lawyerId,
+          userId,
+          userEmail,
+          userName,
+          text,
+          createdAt: new Date(),
+        };
+
+        const result = await commentCollection.insertOne(comment);
+        res.status(201).json({ success: true, data: result });
+      } catch (error) {
+        console.error("Error saving comment:", error);
+        res
+          .status(500)
+          .json({ success: false, message: "Internal server error." });
+      }
+    });
+
+    app.get("/api/comments", async (req, res) => {
+      try {
+        const { lawyerId } = req.query;
+
+        if (!lawyerId) {
+          return res
+            .status(400)
+            .json({ success: false, message: "Missing lawyerId." });
+        }
+
+        const comments = await commentCollection
+          .find({ lawyerId })
+          .sort({ createdAt: -1 })
+          .toArray();
+
+        res.json({ success: true, data: comments });
+      } catch (error) {
+        console.error("Error fetching comments:", error);
+        res
+          .status(500)
+          .json({ success: false, message: "Internal server error." });
+      }
+    });
+    
   } catch (error) {
     console.error("❌ MongoDB Connection Error:", error);
   }
