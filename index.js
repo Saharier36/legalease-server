@@ -34,12 +34,12 @@ async function run() {
     const transactionCollection = db.collection("transactions");
     const commentCollection = db.collection("comments");
 
-    await client.db("admin").command({ ping: 1 });
+    // await client.db("admin").command({ ping: 1 });
     console.log(
       "✅ Pinged your deployment. You successfully connected to MongoDB!",
     );
 
-    // TODO: CRUD Oparations
+    // CRUD Oparations
 
     app.get("/api/lawyer/services", async (req, res) => {
       try {
@@ -326,18 +326,19 @@ async function run() {
       }
     });
     
-  } catch (error) {
-    console.error("❌ MongoDB Connection Error:", error);
+  } finally {
+    // Ensures that the client will close when you finish/error
+    // await client.close();
   }
 }
 run().catch(console.dir);
 
 app.get("/", (req, res) => {
-  res.send("🚀 LegalEase Server is running smoothly!");
+  res.send("LegalEase Server is running smoothly!");
 });
 
 app.listen(port, () => {
-  console.log(`🔥 Server is listening on port ${port}`);
+  console.log(`Server is listening on port ${port}`);
 });
 
 module.exports = app;
