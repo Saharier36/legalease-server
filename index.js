@@ -39,8 +39,7 @@ async function run() {
       "✅ Pinged your deployment. You successfully connected to MongoDB!",
     );
 
-    // CRUD Oparations
-
+    // services
     app.get("/api/lawyer/services", async (req, res) => {
       try {
         const query = {};
@@ -194,15 +193,18 @@ async function run() {
       }
     });
 
+    // hirings
     app.post("/api/hirings", async (req, res) => {
       try {
         const {
           lawyerId,
+          lawyerServiceId,
           userId,
           userEmail,
           userName,
           stripeSessionId,
           amount,
+          specialization,
         } = req.body;
 
         if (!lawyerId || !userId || !stripeSessionId) {
@@ -213,7 +215,7 @@ async function run() {
         }
 
         const existing = await hiringCollection.findOne({
-          lawyerId,
+          lawyerServiceId,
           userId,
         });
 
@@ -226,9 +228,11 @@ async function run() {
 
         const hiring = {
           lawyerId,
+          lawyerServiceId,
           userId,
           userEmail,
           userName,
+          specialization,
           stripeSessionId,
           amount,
           status: "pending",
@@ -245,26 +249,92 @@ async function run() {
       }
     });
 
-   app.get("/api/hirings/check", async (req, res) => {
-     try {
-       const { lawyerId, userId } = req.query;
-       if (!lawyerId || !userId) {
-         return res
-           .status(400)
-           .json({ success: false, message: "Missing params." });
-       }
+    app.get("/api/hirings/check", async (req, res) => {
+      try {
+        const { lawyerServiceId, userId } = req.query;
+        if (!lawyerServiceId || !userId) {
+          return res
+            .status(400)
+            .json({ success: false, message: "Missing params." });
+        }
 
-       const hiring = await hiringCollection.findOne({ lawyerId, userId });
+        const hiring = await hiringCollection.findOne({
+          lawyerServiceId,
+          userId,
+        });
+        res.json({ hasPaid: !!hiring });
+      } catch (error) {
+        console.error("Error checking hiring:", error);
+        res
+          .status(500)
+          .json({ success: false, message: "Internal server error." });
+      }
+    });
 
-       res.json({ hasPaid: !!hiring });
-     } catch (error) {
-       console.error("Error checking hiring:", error);
-       res
-         .status(500)
-         .json({ success: false, message: "Internal server error." });
-     }
-   });
+    app.get("/api/hirings", async (req, res) => {
+      try {
+        const { lawyerId, userId } = req.query;
+        const query = {};
+        if (lawyerId) query.lawyerId = lawyerId;
+        if (userId) query.userId = userId;
 
+        const hirings = await hiringCollection
+          .find(query)
+          .sort({ createdAt: -1 })
+          .toArray();
+
+        res.json({ success: true, data: hirings });
+      } catch (error) {
+        res
+          .status(500)
+          .json({ success: false, message: "Internal server error." });
+      }
+    });
+
+    app.patch("/api/hirings/:id/status", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const { status, lawyerId } = req.body;
+
+        if (!["accepted", "rejected"].includes(status)) {
+          return res
+            .status(400)
+            .json({ success: false, message: "Invalid status." });
+        }
+
+        if (!lawyerId) {
+          return res
+            .status(400)
+            .json({ success: false, message: "Missing lawyerId." });
+        }
+
+        await hiringCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { status } },
+        );
+
+        const acceptedCount = await hiringCollection.countDocuments({
+          lawyerId,
+          status: "accepted",
+        });
+
+        const newLawyerStatus = acceptedCount > 3 ? "Busy" : "Available";
+
+        await lawyerCollection.updateMany(
+          { lawyerId },
+          { $set: { status: newLawyerStatus } },
+        );
+
+        res.json({ success: true, lawyerStatus: newLawyerStatus });
+      } catch (error) {
+        console.error(error);
+        res
+          .status(500)
+          .json({ success: false, message: "Internal server error." });
+      }
+    });
+
+    // comments
     app.post("/api/comments", async (req, res) => {
       try {
         const { lawyerId, userId, userEmail, userName, text } = req.body;
@@ -325,7 +395,7 @@ async function run() {
           .json({ success: false, message: "Internal server error." });
       }
     });
-    
+
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
