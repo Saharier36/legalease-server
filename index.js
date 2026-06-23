@@ -199,15 +199,15 @@ async function run() {
         const {
           lawyerId,
           lawyerServiceId,
+          lawyerName,
           userId,
           userEmail,
           userName,
-          stripeSessionId,
           amount,
           specialization,
         } = req.body;
 
-        if (!lawyerId || !userId || !stripeSessionId) {
+        if (!lawyerId || !userId) {
           return res.status(400).json({
             success: false,
             message: "Missing required fields.",
@@ -222,20 +222,21 @@ async function run() {
         if (existing) {
           return res.status(409).json({
             success: false,
-            message: "You have already hired this lawyer.",
+            message: "You have already sent a hiring request to this lawyer.",
           });
         }
 
         const hiring = {
           lawyerId,
           lawyerServiceId,
+          lawyerName,
           userId,
           userEmail,
           userName,
           specialization,
-          stripeSessionId,
           amount,
           status: "pending",
+          paymentStatus: "unpaid",
           createdAt: new Date(),
         };
 
@@ -262,7 +263,11 @@ async function run() {
           lawyerServiceId,
           userId,
         });
-        res.json({ hasPaid: !!hiring });
+        res.json({
+          hasHired: !!hiring,
+          paymentStatus: hiring?.paymentStatus || null,
+          hiringStatus: hiring?.status || null,
+        });
       } catch (error) {
         console.error("Error checking hiring:", error);
         res
@@ -285,6 +290,74 @@ async function run() {
 
         res.json({ success: true, data: hirings });
       } catch (error) {
+        res
+          .status(500)
+          .json({ success: false, message: "Internal server error." });
+      }
+    });
+
+    app.patch("/api/hirings/:id/payment", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const { stripeSessionId, amount } = req.body;
+
+        if (!stripeSessionId) {
+          return res
+            .status(400)
+            .json({ success: false, message: "Missing stripeSessionId." });
+        }
+
+        const hiring = await hiringCollection.findOne({
+          _id: new ObjectId(id),
+        });
+
+        if (!hiring) {
+          return res
+            .status(404)
+            .json({ success: false, message: "Hiring not found." });
+        }
+
+        // prevent double payment
+        if (hiring.paymentStatus === "paid") {
+          return res
+            .status(409)
+            .json({ success: false, message: "Already paid." });
+        }
+
+        if (hiring.status !== "accepted") {
+          return res.status(400).json({
+            success: false,
+            message: "Payment is only allowed for accepted hiring requests.",
+          });
+        }
+
+        await hiringCollection.updateOne(
+          { _id: new ObjectId(id) },
+          {
+            $set: {
+              paymentStatus: "paid",
+              stripeSessionId,
+              amount: amount || hiring.amount,
+              paidAt: new Date(),
+            },
+          },
+        );
+
+        // save transaction record
+        await transactionCollection.insertOne({
+          hiringId: id,
+          userId: hiring.userId,
+          userEmail: hiring.userEmail,
+          lawyerId: hiring.lawyerId,
+          lawyerServiceId: hiring.lawyerServiceId,
+          amount: amount || hiring.amount,
+          stripeSessionId,
+          createdAt: new Date(),
+        });
+
+        res.json({ success: true });
+      } catch (error) {
+        console.error("Error updating payment:", error);
         res
           .status(500)
           .json({ success: false, message: "Internal server error." });
