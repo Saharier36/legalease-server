@@ -469,6 +469,126 @@ async function run() {
       }
     });
 
+    app.patch("/api/comments/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const { text, userId } = req.body;
+
+        if (!text) {
+          return res
+            .status(400)
+            .json({ success: false, message: "Missing text." });
+        }
+
+        if (text.length > 200) {
+          return res
+            .status(400)
+            .json({
+              success: false,
+              message: "Comment cannot exceed 200 characters.",
+            });
+        }
+
+        const comment = await commentCollection.findOne({
+          _id: new ObjectId(id),
+        });
+        if (!comment) {
+          return res
+            .status(404)
+            .json({ success: false, message: "Comment not found." });
+        }
+
+        if (comment.userId !== userId) {
+          return res
+            .status(403)
+            .json({ success: false, message: "Unauthorized." });
+        }
+
+        await commentCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { text, updatedAt: new Date() } },
+        );
+
+        res.json({ success: true });
+      } catch (error) {
+        console.error(error);
+        res
+          .status(500)
+          .json({ success: false, message: "Internal server error." });
+      }
+    });
+
+    app.delete("/api/comments/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const { userId } = req.query;
+
+        const comment = await commentCollection.findOne({
+          _id: new ObjectId(id),
+        });
+        if (!comment) {
+          return res
+            .status(404)
+            .json({ success: false, message: "Comment not found." });
+        }
+
+        if (comment.userId !== userId) {
+          return res
+            .status(403)
+            .json({ success: false, message: "Unauthorized." });
+        }
+
+        await commentCollection.deleteOne({ _id: new ObjectId(id) });
+        res.json({ success: true });
+      } catch (error) {
+        console.error(error);
+        res
+          .status(500)
+          .json({ success: false, message: "Internal server error." });
+      }
+    });
+
+    app.get("/api/comments/user", async (req, res) => {
+      try {
+        const { userId } = req.query;
+        if (!userId) {
+          return res
+            .status(400)
+            .json({ success: false, message: "Missing userId." });
+        }
+
+        const comments = await commentCollection
+          .find({ userId })
+          .sort({ createdAt: -1 })
+          .toArray();
+
+        const commentsWithLawyer = await Promise.all(
+          comments.map(async (c) => {
+            try {
+              const lawyer = await lawyerCollection.findOne({
+                _id: new ObjectId(c.lawyerId),
+              });
+              return {
+                ...c,
+                lawyerName: lawyer?.name || "—",
+                lawyerSpecialization: lawyer?.specialization || "—",
+              };
+            } catch {
+              return { ...c, lawyerName: "—", lawyerSpecialization: "—" };
+            }
+          }),
+        );
+
+        res.json({ success: true, data: commentsWithLawyer });
+      } catch (error) {
+        console.error(error);
+        res
+          .status(500)
+          .json({ success: false, message: "Internal server error." });
+      }
+    });
+
+
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
