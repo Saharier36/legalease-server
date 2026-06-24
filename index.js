@@ -23,23 +23,23 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    // await client.connect();
+    await client.connect();
     // Send a ping to confirm a successful connection
 
     const db = client.db(process.env.DB_NAME);
 
-    const userCollection = db.collection("users");
+    const userCollection = db.collection("user");
     const lawyerCollection = db.collection("lawyers");
     const hiringCollection = db.collection("hirings");
     const transactionCollection = db.collection("transactions");
     const commentCollection = db.collection("comments");
 
-    // await client.db("admin").command({ ping: 1 });
+    await client.db("admin").command({ ping: 1 });
     console.log(
       "✅ Pinged your deployment. You successfully connected to MongoDB!",
     );
 
-    // services
+    // lawyer services
     app.get("/api/lawyer/services", async (req, res) => {
       try {
         const query = {};
@@ -481,12 +481,10 @@ async function run() {
         }
 
         if (text.length > 200) {
-          return res
-            .status(400)
-            .json({
-              success: false,
-              message: "Comment cannot exceed 200 characters.",
-            });
+          return res.status(400).json({
+            success: false,
+            message: "Comment cannot exceed 200 characters.",
+          });
         }
 
         const comment = await commentCollection.findOne({
@@ -580,6 +578,69 @@ async function run() {
         );
 
         res.json({ success: true, data: commentsWithLawyer });
+      } catch (error) {
+        console.error(error);
+        res
+          .status(500)
+          .json({ success: false, message: "Internal server error." });
+      }
+    });
+
+    // users
+
+    app.get("/api/users", async (req, res) => {
+      try {
+        const users = await userCollection
+          .find({})
+          .sort({ createdAt: -1 })
+          .toArray();
+        res.json({ success: true, data: users });
+      } catch (error) {
+        console.error(error);
+        res
+          .status(500)
+          .json({ success: false, message: "Internal server error." });
+      }
+    });
+
+    app.patch("/api/users/:id/role", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const { role } = req.body;
+
+        if (!["user", "lawyer", "admin"].includes(role)) {
+          return res
+            .status(400)
+            .json({ success: false, message: "Invalid role." });
+        }
+
+        await userCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { role } },
+        );
+
+        res.json({ success: true });
+      } catch (error) {
+        console.error(error);
+        res
+          .status(500)
+          .json({ success: false, message: "Internal server error." });
+      }
+    });
+
+    app.delete("/api/users/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+
+        const user = await userCollection.findOne({ _id: new ObjectId(id) });
+        if (!user) {
+          return res
+            .status(404)
+            .json({ success: false, message: "User not found." });
+        }
+
+        await userCollection.deleteOne({ _id: new ObjectId(id) });
+        res.json({ success: true });
       } catch (error) {
         console.error(error);
         res
