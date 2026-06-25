@@ -23,7 +23,7 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
+    // await client.connect();
     // Send a ping to confirm a successful connection
 
     const db = client.db(process.env.DB_NAME);
@@ -34,7 +34,7 @@ async function run() {
     const transactionCollection = db.collection("transactions");
     const commentCollection = db.collection("comments");
 
-    await client.db("admin").command({ ping: 1 });
+    // await client.db("admin").command({ ping: 1 });
     console.log(
       "✅ Pinged your deployment. You successfully connected to MongoDB!",
     );
@@ -299,7 +299,7 @@ async function run() {
     app.patch("/api/hirings/:id/payment", async (req, res) => {
       try {
         const { id } = req.params;
-        const { stripeSessionId, amount } = req.body;
+        const { stripeSessionId, amount, paymentIntentId } = req.body;
 
         if (!stripeSessionId) {
           return res
@@ -352,6 +352,7 @@ async function run() {
           lawyerServiceId: hiring.lawyerServiceId,
           amount: amount || hiring.amount,
           stripeSessionId,
+          paymentIntentId: paymentIntentId || null,
           createdAt: new Date(),
         });
 
@@ -587,7 +588,6 @@ async function run() {
     });
 
     // users
-
     app.get("/api/users", async (req, res) => {
       try {
         const users = await userCollection
@@ -641,6 +641,24 @@ async function run() {
 
         await userCollection.deleteOne({ _id: new ObjectId(id) });
         res.json({ success: true });
+      } catch (error) {
+        console.error(error);
+        res
+          .status(500)
+          .json({ success: false, message: "Internal server error." });
+      }
+    });
+
+    // transaction
+
+    app.get("/api/transactions", async (req, res) => {
+      try {
+        const transactions = await transactionCollection
+          .find({})
+          .sort({ createdAt: -1 })
+          .toArray();
+
+        res.json({ success: true, data: transactions });
       } catch (error) {
         console.error(error);
         res
