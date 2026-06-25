@@ -667,6 +667,44 @@ async function run() {
       }
     });
 
+    // analytics
+
+    app.get("/api/admin/analytics", async (req, res) => {
+      try {
+        const totalUsers = await userCollection.countDocuments({});
+        const totalLawyers = await lawyerCollection.countDocuments({});
+        const totalHires = await hiringCollection.countDocuments({});
+
+        const revenueResult = await transactionCollection
+          .aggregate([
+            {
+              $group: {
+                _id: null,
+                total: { $sum: "$amount" },
+              },
+            },
+          ])
+          .toArray();
+
+        const totalRevenue = revenueResult[0]?.total || 0;
+
+        res.json({
+          success: true,
+          data: {
+            totalUsers,
+            totalLawyers,
+            totalHires,
+            totalRevenue,
+          },
+        });
+      } catch (error) {
+        console.error(error);
+        res
+          .status(500)
+          .json({ success: false, message: "Internal server error." });
+      }
+    });
+
 
   } finally {
     // Ensures that the client will close when you finish/error
