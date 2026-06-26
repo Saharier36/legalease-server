@@ -6,7 +6,13 @@ require("dotenv").config();
 const app = express();
 const port = process.env.PORT || 5000;
 
-app.use(cors());
+app.use(
+  cors({
+    origin: ["https://legalease-lovat.vercel.app", "http://localhost:3000"],
+    methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  }),
+);
 app.use(express.json());
 
 const uri = process.env.MONGODB_URI;
@@ -33,11 +39,63 @@ async function run() {
     const hiringCollection = db.collection("hirings");
     const transactionCollection = db.collection("transactions");
     const commentCollection = db.collection("comments");
+    const sessionCollection = db.collection("session");
 
     // await client.db("admin").command({ ping: 1 });
     console.log(
       "✅ Pinged your deployment. You successfully connected to MongoDB!",
     );
+
+    // verification
+
+    const verifyToken = async (req, res, next) => {
+      const authHeader = req.headers?.authorization;
+      if (!authHeader) {
+        return res.status(401).send({ message: "unauthorized access" });
+      }
+      const token = authHeader.split(" ")[1];
+      if (!token) {
+        return res.status(401).send({ message: "unauthorized access" });
+      }
+
+      try {
+        const session = await sessionCollection.findOne({ token });
+        if (!session) {
+          return res.status(401).send({ message: "unauthorized access" });
+        }
+
+        const user = await userCollection.findOne({ _id: session.userId });
+        if (!user) {
+          return res.status(401).send({ message: "unauthorized access" });
+        }
+
+        req.user = user;
+        next();
+      } catch (err) {
+        console.error("Token verification error:", err);
+        return res.status(401).send({ message: "unauthorized access" });
+      }
+    };
+
+    const verifyUser = async (req, res, next) => {
+      if (req.user?.role !== "user")
+        return res.status(403).send({ message: "forbidden access" });
+      next();
+    };
+
+    const verifyLawyer = async (req, res, next) => {
+      if (req.user?.role !== "lawyer") {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+      next();
+    };
+
+    const verifyAdmin = async (req, res, next) => {
+      if (req.user?.role !== "admin") {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+      next();
+    };
 
     // lawyer services
     app.get("/api/lawyer/services", async (req, res) => {
@@ -114,87 +172,103 @@ async function run() {
       }
     });
 
-    app.post("/api/lawyer/services", async (req, res) => {
-      try {
-        const newService = req.body;
-        const { lawyerEmail, specialization } = newService;
+    app.post(
+      "/api/lawyer/services",
+      verifyToken,
+      verifyLawyer,
+      async (req, res) => {
+        try {
+          const newService = req.body;
+          const { lawyerEmail, specialization } = newService;
 
-        if (!lawyerEmail || !specialization) {
-          return res.status(400).send({
-            success: false,
-            message: "Missing required fields: lawyerEmail or specialization.",
+          if (!lawyerEmail || !specialization) {
+            return res.status(400).send({
+              success: false,
+              message:
+                "Missing required fields: lawyerEmail or specialization.",
+            });
+          }
+
+          const duplicateCheckQuery = {
+            lawyerEmail: lawyerEmail,
+            specialization: specialization,
+          };
+
+          const existingService =
+            await lawyerCollection.findOne(duplicateCheckQuery);
+
+          if (existingService) {
+            return res.status(409).send({
+              success: false,
+              message: `You have already added a service under the "${specialization}" category! Please choose another domain.`,
+            });
+          }
+
+          const result = await lawyerCollection.insertOne(newService);
+          res.status(201).send(result);
+        } catch (error) {
+          console.error("Error creating lawyer service:", error);
+          res
+            .status(500)
+            .send({ success: false, message: "Internal server error." });
+        }
+      },
+    );
+
+    app.patch(
+      "/api/lawyer/services/:id",
+      verifyToken,
+      verifyLawyer,
+      async (req, res) => {
+        try {
+          const { id } = req.params;
+          const updatedData = req.body;
+
+          const result = await lawyerCollection.updateOne(
+            { _id: new ObjectId(id) },
+            { $set: updatedData },
+          );
+          res.send(result);
+        } catch (error) {
+          console.error("Error updating lawyer service:", error);
+          res
+            .status(500)
+            .send({ success: false, message: "Internal server error." });
+        }
+      },
+    );
+
+    app.delete(
+      "/api/lawyer/services/:id",
+      verifyToken,
+      verifyLawyer,
+      async (req, res) => {
+        try {
+          const { id } = req.params;
+          const service = await lawyerCollection.findOne({
+            _id: new ObjectId(id),
           });
-        }
+          if (!service) {
+            return res
+              .status(404)
+              .json({ success: false, message: "Service not found" });
+          }
 
-        const duplicateCheckQuery = {
-          lawyerEmail: lawyerEmail,
-          specialization: specialization,
-        };
-
-        const existingService =
-          await lawyerCollection.findOne(duplicateCheckQuery);
-
-        if (existingService) {
-          return res.status(409).send({
-            success: false,
-            message: `You have already added a service under the "${specialization}" category! Please choose another domain.`,
+          const result = await lawyerCollection.deleteOne({
+            _id: new ObjectId(id),
           });
+          res.send(result);
+        } catch (error) {
+          console.error("Error deleting service:", error);
+          res
+            .status(500)
+            .json({ success: false, message: "Internal Server Error" });
         }
-
-        const result = await lawyerCollection.insertOne(newService);
-        res.status(201).send(result);
-      } catch (error) {
-        console.error("Error creating lawyer service:", error);
-        res
-          .status(500)
-          .send({ success: false, message: "Internal server error." });
-      }
-    });
-
-    app.patch("/api/lawyer/services/:id", async (req, res) => {
-      try {
-        const { id } = req.params;
-        const updatedData = req.body;
-
-        const result = await lawyerCollection.updateOne(
-          { _id: new ObjectId(id) },
-          { $set: updatedData },
-        );
-        res.send(result);
-      } catch (error) {
-        console.error("Error updating lawyer service:", error);
-        res
-          .status(500)
-          .send({ success: false, message: "Internal server error." });
-      }
-    });
-
-    app.delete("/api/lawyer/services/:id", async (req, res) => {
-      try {
-        const { id } = req.params;
-        const service = await lawyerCollection.findOne({
-          _id: new ObjectId(id),
-        });
-        if (!service) {
-          return res
-            .status(404)
-            .json({ success: false, message: "Service not found" });
-        }
-
-        const result = await lawyerCollection.deleteOne({
-          _id: new ObjectId(id),
-        });
-        res.send(result);
-      } catch (error) {
-        console.error("Error deleting service:", error);
-        res
-          .status(500)
-          .json({ success: false, message: "Internal Server Error" });
-      }
-    });
+      },
+    );
 
     // hirings
-    app.post("/api/hirings", async (req, res) => {
+    app.post("/api/hirings", verifyToken, verifyUser, async (req, res) => {
       try {
         const {
           lawyerId,
@@ -250,7 +324,7 @@ async function run() {
       }
     });
 
-    app.get("/api/hirings/check", async (req, res) => {
+    app.get("/api/hirings/check", verifyToken, async (req, res) => {
       try {
         const { lawyerServiceId, userId } = req.query;
         if (!lawyerServiceId || !userId) {
@@ -276,7 +350,7 @@ async function run() {
       }
     });
 
-    app.get("/api/hirings", async (req, res) => {
+    app.get("/api/hirings", verifyToken, async (req, res) => {
       try {
         const { lawyerId, userId } = req.query;
         const query = {};
@@ -296,7 +370,7 @@ async function run() {
       }
     });
 
-    app.patch("/api/hirings/:id/payment", async (req, res) => {
+    app.patch("/api/hirings/:id/payment", verifyToken, async (req, res) => {
       try {
         const { id } = req.params;
         const { stripeSessionId, amount, paymentIntentId } = req.body;
@@ -365,51 +439,56 @@ async function run() {
       }
     });
 
-    app.patch("/api/hirings/:id/status", async (req, res) => {
-      try {
-        const { id } = req.params;
-        const { status, lawyerId } = req.body;
+    app.patch(
+      "/api/hirings/:id/status",
+      verifyToken,
+      verifyLawyer,
+      async (req, res) => {
+        try {
+          const { id } = req.params;
+          const { status, lawyerId } = req.body;
 
-        if (!["accepted", "rejected"].includes(status)) {
-          return res
-            .status(400)
-            .json({ success: false, message: "Invalid status." });
+          if (!["accepted", "rejected"].includes(status)) {
+            return res
+              .status(400)
+              .json({ success: false, message: "Invalid status." });
+          }
+
+          if (!lawyerId) {
+            return res
+              .status(400)
+              .json({ success: false, message: "Missing lawyerId." });
+          }
+
+          await hiringCollection.updateOne(
+            { _id: new ObjectId(id) },
+            { $set: { status } },
+          );
+
+          const acceptedCount = await hiringCollection.countDocuments({
+            lawyerId,
+            status: "accepted",
+          });
+
+          const newLawyerStatus = acceptedCount > 3 ? "Busy" : "Available";
+
+          await lawyerCollection.updateMany(
+            { lawyerId },
+            { $set: { status: newLawyerStatus } },
+          );
+
+          res.json({ success: true, lawyerStatus: newLawyerStatus });
+        } catch (error) {
+          console.error(error);
+          res
+            .status(500)
+            .json({ success: false, message: "Internal server error." });
         }
-
-        if (!lawyerId) {
-          return res
-            .status(400)
-            .json({ success: false, message: "Missing lawyerId." });
-        }
-
-        await hiringCollection.updateOne(
-          { _id: new ObjectId(id) },
-          { $set: { status } },
-        );
-
-        const acceptedCount = await hiringCollection.countDocuments({
-          lawyerId,
-          status: "accepted",
-        });
-
-        const newLawyerStatus = acceptedCount > 3 ? "Busy" : "Available";
-
-        await lawyerCollection.updateMany(
-          { lawyerId },
-          { $set: { status: newLawyerStatus } },
-        );
-
-        res.json({ success: true, lawyerStatus: newLawyerStatus });
-      } catch (error) {
-        console.error(error);
-        res
-          .status(500)
-          .json({ success: false, message: "Internal server error." });
-      }
-    });
+      },
+    );
 
     // comments
-    app.post("/api/comments", async (req, res) => {
+    app.post("/api/comments", verifyToken, async (req, res) => {
       try {
         const { lawyerId, userId, userEmail, userName, text } = req.body;
 
@@ -470,7 +549,7 @@ async function run() {
       }
     });
 
-    app.patch("/api/comments/:id", async (req, res) => {
+    app.patch("/api/comments/:id", verifyToken, async (req, res) => {
       try {
         const { id } = req.params;
         const { text, userId } = req.body;
@@ -517,7 +596,7 @@ async function run() {
       }
     });
 
-    app.delete("/api/comments/:id", async (req, res) => {
+    app.delete("/api/comments/:id", verifyToken, async (req, res) => {
       try {
         const { id } = req.params;
         const { userId } = req.query;
@@ -547,7 +626,7 @@ async function run() {
       }
     });
 
-    app.get("/api/comments/user", async (req, res) => {
+    app.get("/api/comments/user", verifyToken, async (req, res) => {
       try {
         const { userId } = req.query;
         if (!userId) {
@@ -588,7 +667,7 @@ async function run() {
     });
 
     // users
-    app.get("/api/users", async (req, res) => {
+    app.get("/api/users", verifyToken, verifyAdmin, async (req, res) => {
       try {
         const users = await userCollection
           .find({})
@@ -603,32 +682,37 @@ async function run() {
       }
     });
 
-    app.patch("/api/users/:id/role", async (req, res) => {
-      try {
-        const { id } = req.params;
-        const { role } = req.body;
+    app.patch(
+      "/api/users/:id/role",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        try {
+          const { id } = req.params;
+          const { role } = req.body;
 
-        if (!["user", "lawyer", "admin"].includes(role)) {
-          return res
-            .status(400)
-            .json({ success: false, message: "Invalid role." });
+          if (!["user", "lawyer", "admin"].includes(role)) {
+            return res
+              .status(400)
+              .json({ success: false, message: "Invalid role." });
+          }
+
+          await userCollection.updateOne(
+            { _id: new ObjectId(id) },
+            { $set: { role } },
+          );
+
+          res.json({ success: true });
+        } catch (error) {
+          console.error(error);
+          res
+            .status(500)
+            .json({ success: false, message: "Internal server error." });
         }
+      },
+    );
 
-        await userCollection.updateOne(
-          { _id: new ObjectId(id) },
-          { $set: { role } },
-        );
-
-        res.json({ success: true });
-      } catch (error) {
-        console.error(error);
-        res
-          .status(500)
-          .json({ success: false, message: "Internal server error." });
-      }
-    });
-
-    app.delete("/api/users/:id", async (req, res) => {
+    app.delete("/api/users/:id", verifyToken, verifyAdmin, async (req, res) => {
       try {
         const { id } = req.params;
 
@@ -651,7 +735,7 @@ async function run() {
 
     // transaction
 
-    app.get("/api/transactions", async (req, res) => {
+    app.get("/api/transactions", verifyToken, verifyAdmin, async (req, res) => {
       try {
         const transactions = await transactionCollection
           .find({})
@@ -669,43 +753,46 @@ async function run() {
 
     // analytics
 
-    app.get("/api/admin/analytics", async (req, res) => {
-      try {
-        const totalUsers = await userCollection.countDocuments({});
-        const totalLawyers = await lawyerCollection.countDocuments({});
-        const totalHires = await hiringCollection.countDocuments({});
+    app.get(
+      "/api/admin/analytics",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        try {
+          const totalUsers = await userCollection.countDocuments({});
+          const totalLawyers = await lawyerCollection.countDocuments({});
+          const totalHires = await hiringCollection.countDocuments({});
 
-        const revenueResult = await transactionCollection
-          .aggregate([
-            {
-              $group: {
-                _id: null,
-                total: { $sum: "$amount" },
+          const revenueResult = await transactionCollection
+            .aggregate([
+              {
+                $group: {
+                  _id: null,
+                  total: { $sum: "$amount" },
+                },
               },
+            ])
+            .toArray();
+
+          const totalRevenue = revenueResult[0]?.total || 0;
+
+          res.json({
+            success: true,
+            data: {
+              totalUsers,
+              totalLawyers,
+              totalHires,
+              totalRevenue,
             },
-          ])
-          .toArray();
-
-        const totalRevenue = revenueResult[0]?.total || 0;
-
-        res.json({
-          success: true,
-          data: {
-            totalUsers,
-            totalLawyers,
-            totalHires,
-            totalRevenue,
-          },
-        });
-      } catch (error) {
-        console.error(error);
-        res
-          .status(500)
-          .json({ success: false, message: "Internal server error." });
-      }
-    });
-
-
+          });
+        } catch (error) {
+          console.error(error);
+          res
+            .status(500)
+            .json({ success: false, message: "Internal server error." });
+        }
+      },
+    );
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
